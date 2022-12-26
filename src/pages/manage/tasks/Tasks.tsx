@@ -4,6 +4,7 @@ import { useFetch, useT } from "~/hooks"
 import { PEmptyResp, PResp, TaskInfo } from "~/types"
 import { handleResp, r } from "~/utils"
 import { Task } from "./Task"
+import { fsCopy } from "~/utils"
 
 export interface TasksProps {
   type: string
@@ -36,6 +37,62 @@ export const Tasks = (props: TasksProps) => {
   const [clearLoading, clear] = useFetch(
     (): PEmptyResp => r.post(`/admin/task/${props.type}/clear_done`)
   )
+
+  const [clearCompleteLoading, clearComplete] = useFetch(
+    (): PEmptyResp =>
+      new Promise<any>((resolve, reject) => {
+        Promise.all(
+          tasks()
+            .filter(({ state }) => state == "succeeded")
+            .map(({ id }) => {
+              const [operateLoading, operate] = useFetch(
+                (): PEmptyResp =>
+                  r.post(`/admin/task/${props.type}/delete?tid=${id}`)
+              )
+              return operate()
+            })
+        )
+          .then(() => {
+            resolve({
+              code: 200,
+              message: "success",
+              data: null,
+            })
+          })
+          .catch(() => {
+            reject({})
+          })
+      })
+  )
+
+  const [retryAllFailedLoading, retryAllFailed] = useFetch(
+    (): PEmptyResp =>
+      new Promise<any>((resolve, reject) => {
+        Promise.all(
+          tasks()
+            .filter(({ state }) => state != "succeeded")
+            .map(({ name }) => {
+              const body = name.replace(
+                /.*\[(.*)\]\((.*)\/(.*)\).*\[(.*)\]\((.*)\).*/,
+                `{"src_dir":"$1$2","dst_dir":"$4$5","names":["$3"]}`
+              )
+              const data = JSON.parse(body)
+              const [operateLoading, operate] = useFetch(fsCopy)
+              return operate(data["src_dir"], data["dst_dir"], data["names"])
+            })
+        )
+          .then(() => {
+            resolve({
+              code: 200,
+              message: "success",
+              data: null,
+            })
+          })
+          .catch(() => {
+            reject({})
+          })
+      })
+  )
   return (
     <VStack w="$full" alignItems="start" spacing="$2">
       <Heading size="lg">{t(`tasks.${props.done}`)}</Heading>
@@ -52,6 +109,24 @@ export const Tasks = (props: TasksProps) => {
             }}
           >
             {t(`global.clear`)}
+          </Button>
+          <Button
+            loading={clearCompleteLoading()}
+            onClick={async () => {
+              const resp = await clearComplete()
+              handleResp(resp, () => refresh())
+            }}
+          >
+            {t(`global.clearComplete`, {}, "Clear Complete")}
+          </Button>
+          <Button
+            loading={retryAllFailedLoading()}
+            onClick={async () => {
+              const resp = await retryAllFailed()
+              handleResp(resp, () => refresh())
+            }}
+          >
+            {t(`global.retryFailedTask`, {}, "Retry All Failed")}
           </Button>
         </HStack>
       </Show>
